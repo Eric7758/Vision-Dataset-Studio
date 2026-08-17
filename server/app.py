@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from server.routers import ai, batch, caption, export, image_process, items, projects, workspace
 
@@ -16,6 +17,27 @@ app = FastAPI(
     description="视觉数据集工作台 API — 多控制图浏览 / Caption 编辑 / AI 标注 / 图像预处理 / 导出",
     version="1.0.0",
 )
+
+
+@app.exception_handler(FileNotFoundError)
+async def file_not_found_handler(request: Request, exc: FileNotFoundError):
+    return JSONResponse(status_code=404, content={"ok": False, "error": str(exc), "error_code": "not_found"})
+
+
+@app.exception_handler(KeyError)
+async def key_error_handler(request: Request, exc: KeyError):
+    name = exc.args[0] if exc.args else ""
+    return JSONResponse(status_code=404, content={"ok": False, "error": f"Item not found: {name}", "error_code": "not_found"})
+
+
+@app.exception_handler(FileExistsError)
+async def file_exists_handler(request: Request, exc: FileExistsError):
+    return JSONResponse(status_code=409, content={"ok": False, "error": str(exc), "error_code": "already_exists"})
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "error_code": "invalid_request"})
 
 app.add_middleware(
     CORSMiddleware,

@@ -135,12 +135,13 @@ export function createBrowserModule({
   }
 
   function effectivePanelFolderFilter(panelId = "primary") {
-    return panelSegmentQuery(panelId).trim() ? "" : panelFolderFilter(panelId);
+    return panelSegmentQuery(panelId).trim() ? "" : normalizeFolderPath(panelFolderFilter(panelId));
   }
 
   function setPanelFolderFilter(panelId, value) {
-    if (panelId === "secondary") state.secondaryItemFolderFilter = value || "";
-    else state.itemFolderFilter = value || "";
+    const normalized = normalizeFolderPath(value);
+    if (panelId === "secondary") state.secondaryItemFolderFilter = normalized;
+    else state.itemFolderFilter = normalized;
     saveListViewState();
   }
 
@@ -1045,31 +1046,38 @@ export function createBrowserModule({
 
   async function moveItemToFolder(name, folder) {
     if (!name || folder == null) return;
-    if (itemFolder(name) === folder) return;
+    const targetFolder = normalizeFolderPath(folder);
+    if (itemFolder(name) === targetFolder) return;
     if (!(await confirmDiscardCaptionChanges())) return;
-    const data = await apiPost("/api/item/move-folder", { name, folder });
+    const data = await apiPost("/api/item/move-folder", { name, folder: targetFolder });
     if (data.workspace) applyWorkspaceSummary(data.workspace);
-    setPanelFolderFilter(activeListPanelId(), folder);
-    setAiStatusLine(folder ? `已移动到子文件夹：${folder}` : "已移动到项目根目录");
+    setPanelFolderFilter(activeListPanelId(), targetFolder);
+    setAiStatusLine(targetFolder ? `已移动到子文件夹：${targetFolder}` : "已移动到项目根目录");
     await refreshItems({ skipDirtyCheck: true, suppressSelectionSync: true });
     await selectItem(data.new_name || name, true, { skipDirtyCheck: true, panelId: activeListPanelId() });
   }
 
   async function moveItemsToFolder(names, folder) {
     const targets = [...new Set(Array.isArray(names) ? names : [names])].filter(Boolean);
+    const targetFolder = normalizeFolderPath(folder);
     if (!targets.length || folder == null) return;
-    if (targets.length === 1) {
-      await moveItemToFolder(targets[0], folder);
-      return;
-    }
     if (targets.includes(state.selectedName) && !(await confirmDiscardCaptionChanges())) return;
-    const data = await apiPost("/api/item/move-folder", { names: targets, folder });
+    const data = await apiPost("/api/item/move-folder", { names: targets, folder: targetFolder });
     if (data.workspace) applyWorkspaceSummary(data.workspace);
     clearBatchSelection();
     setPanelFilter(activeListPanelId(), panelFilter(activeListPanelId()));
-    setAiStatusLine(folder ? `已移动到子文件夹：${folder}（${targets.length} 项）` : `已移动到项目根目录（${targets.length} 项）`);
+    const moved = Array.isArray(data.moved) ? data.moved : [];
+    const skipped = Array.isArray(data.skipped) ? data.skipped : [];
+    const duplicateCount = skipped.filter((item) => item.reason === "already_exists").length;
+    const notFoundCount = skipped.filter((item) => item.reason === "not_found").length;
+    const statusParts = [];
+    if (moved.length) statusParts.push(`移动 ${moved.length} 项`);
+    if (duplicateCount) statusParts.push(`跳过重复项 ${duplicateCount} 项`);
+    if (notFoundCount) statusParts.push(`未找到条目 ${notFoundCount} 项`);
+    const location = targetFolder ? `子文件夹：${targetFolder}` : "项目根目录";
+    setAiStatusLine(`${location}：${statusParts.join("，") || "没有可移动项目"}`);
     await refreshItems({ skipDirtyCheck: true, suppressSelectionSync: true });
-    const nextName = data.moved?.[data.moved.length - 1]?.new_name || targets[0];
+    const nextName = moved[moved.length - 1]?.new_name || "";
     if (nextName) await selectItem(nextName, true, { skipDirtyCheck: true, panelId: activeListPanelId() });
   }
 
@@ -1193,7 +1201,8 @@ export function createBrowserModule({
     const targetFolder = parent ? `${parent}/${nextName}` : nextName;
     const data = await apiPost("/api/item/rename-folder", { folder: cleanFolder, new_folder: targetFolder });
     if (data.workspace) applyWorkspaceSummary(data.workspace);
-    setPanelFolderFilter(activeListPanelId(), panelFolderFilter(activeListPanelId()) === cleanFolder ? targetFolder : panelFolderFilter(activeListPanelId()));
+    const activeFolder = normalizeFolderPath(panelFolderFilter(activeListPanelId()));
+    setPanelFolderFilter(activeListPanelId(), activeFolder === cleanFolder ? targetFolder : activeFolder);
     setAiStatusLine(`已重命名文件夹：${cleanFolder} -> ${targetFolder}`);
     await rescanWorkspace();
   }
@@ -1205,7 +1214,7 @@ export function createBrowserModule({
     if (!ok) return;
     const data = await apiPost("/api/item/delete-folder", { folder: cleanFolder });
     if (data.workspace) applyWorkspaceSummary(data.workspace);
-    if (panelFolderFilter(activeListPanelId()) === cleanFolder) setPanelFolderFilter(activeListPanelId(), "");
+    if (normalizeFolderPath(panelFolderFilter(activeListPanelId())) === cleanFolder) setPanelFolderFilter(activeListPanelId(), "");
     setAiStatusLine(`已删除文件夹：${cleanFolder}`);
     await refreshItems({ skipDirtyCheck: true, suppressSelectionSync: true });
   }

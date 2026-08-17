@@ -572,6 +572,27 @@ class DatasetWorkspaceTextTests(unittest.TestCase):
             self.assertTrue((result_path / "icons" / "sample1.txt").exists())
             self.assertTrue((result_path / "icons" / "sample2.txt").exists())
 
+    def test_move_items_to_folder_skips_existing_and_missing_items(self):
+        workspace = DatasetWorkspace()
+        with tempfile.TemporaryDirectory() as result_dir:
+            result_path = Path(result_dir)
+            (result_path / "icons").mkdir()
+            Image.new("RGB", (32, 32), (10, 20, 30)).save(result_path / "sample.png")
+            Image.new("RGB", (32, 32), (30, 20, 10)).save(result_path / "other.png")
+            Image.new("RGB", (32, 32), (0, 0, 0)).save(result_path / "icons" / "sample.png")
+
+            workspace.open_dirs(result_dir=str(result_path), control_count=1)
+            result = workspace.move_items_to_folder(["sample", "other", "missing"], "icons")
+
+            self.assertEqual([item["new_name"] for item in result["moved"]], ["icons/other"])
+            self.assertEqual(
+                {item["name"]: item["reason"] for item in result["skipped"]},
+                {"sample": "already_exists", "missing": "not_found"},
+            )
+            self.assertTrue((result_path / "sample.png").exists())
+            self.assertTrue((result_path / "icons" / "sample.png").exists())
+            self.assertTrue((result_path / "icons" / "other.png").exists())
+
     def test_create_folder_persists_workspace_folder(self):
         workspace = DatasetWorkspace()
         with tempfile.TemporaryDirectory() as control_dir, tempfile.TemporaryDirectory() as result_dir:
