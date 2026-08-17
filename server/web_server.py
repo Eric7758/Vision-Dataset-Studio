@@ -319,8 +319,11 @@ class AppHandler(BaseHTTPRequestHandler):
         }
         return self._send_text_file(target, content_types.get(suffix, "application/octet-stream"))
 
-    def _error(self, message: str, status: int = 400):
-        self._send_json({"ok": False, "error": message}, status)
+    def _error(self, message: str, status: int = 400, code: str = ""):
+        payload = {"ok": False, "error": message}
+        if code:
+            payload["error_code"] = code
+        self._send_json(payload, status)
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -434,7 +437,13 @@ class AppHandler(BaseHTTPRequestHandler):
                 )
             return self._error(f"Unknown route: {path}", status=404)
         except KeyError as exc:
-            return self._error(f"Item not found: {exc}", status=404)
+            return self._error(f"Item not found: {exc.args[0] if exc.args else ''}", status=404, code="not_found")
+        except FileNotFoundError as exc:
+            return self._error(str(exc), status=404, code="not_found")
+        except FileExistsError as exc:
+            return self._error(str(exc), status=409, code="already_exists")
+        except ValueError as exc:
+            return self._error(str(exc), status=400, code="invalid_request")
         except Exception as exc:
             return self._error(str(exc), status=500)
 
@@ -1132,7 +1141,13 @@ class AppHandler(BaseHTTPRequestHandler):
 
             return self._error(f"Unknown route: {path}", status=404)
         except KeyError as exc:
-            return self._error(f"Item not found: {exc}", status=404)
+            return self._error(f"Item not found: {exc.args[0] if exc.args else ''}", status=404, code="not_found")
+        except FileNotFoundError as exc:
+            return self._error(str(exc), status=404, code="not_found")
+        except FileExistsError as exc:
+            return self._error(str(exc), status=409, code="already_exists")
+        except ValueError as exc:
+            return self._error(str(exc), status=400, code="invalid_request")
         except RuntimeError as exc:
             return self._error(str(exc), status=400)
         except TimeoutError as exc:

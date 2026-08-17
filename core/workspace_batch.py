@@ -740,15 +740,43 @@ class BatchOperations(_StateProxy):
             raise ValueError("No items selected.")
         clean_folder = self._workspace._clean_relative_folder(target_folder) if str(target_folder or "").strip() else ""
         moved_items: list[dict] = []
+        skipped_items: list[dict] = []
+        seen: set[str] = set()
         for name in selected:
-            result = self.move_item_to_folder(name, clean_folder)
-            moved_items.append({
-                "old_name": result["old_name"],
-                "new_name": result["new_name"],
-                "moved": result["moved"],
-            })
+            if name in seen:
+                continue
+            seen.add(name)
+            try:
+                result = self.move_item_to_folder(name, clean_folder)
+            except KeyError:
+                skipped_items.append({
+                    "name": name,
+                    "reason": "not_found",
+                    "message": f"Item not found: {name}",
+                })
+            except FileExistsError:
+                basename = Path(name).name
+                target_name = f"{clean_folder}/{basename}" if clean_folder else basename
+                skipped_items.append({
+                    "name": name,
+                    "reason": "already_exists",
+                    "message": f"Target item already exists: {target_name}",
+                })
+            except FileNotFoundError:
+                skipped_items.append({
+                    "name": name,
+                    "reason": "not_found",
+                    "message": f"Source files not found: {name}",
+                })
+            else:
+                moved_items.append({
+                    "old_name": result["old_name"],
+                    "new_name": result["new_name"],
+                    "moved": result["moved"],
+                })
         return {
             "moved": moved_items,
+            "skipped": skipped_items,
             "workspace": self._workspace.get_workspace_summary(),
         }
 
